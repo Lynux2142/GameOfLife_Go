@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	WINDOW_WIDTH  	= 1600
-	WINDOW_HEIGHT 	= 1200
-	CELL_SIZE	 	= 2
+	WINDOW_WIDTH  	= 1260
+	WINDOW_HEIGHT 	= 960
+	CELL_SIZE	 	= 1
 )
 
 func main() {
