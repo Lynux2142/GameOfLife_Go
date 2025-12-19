@@ -36,8 +36,8 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	for y := int(0); y < g.Grid.Height; y++ {
-		for x := int(0); x < g.Grid.Width; x++ {
+	for y := range(g.Grid.Height) {
+		for x := range(g.Grid.Width) {
 			if g.Grid.Cells[y][x] == 1 {
 				vector.FillRect(
 					screen,
