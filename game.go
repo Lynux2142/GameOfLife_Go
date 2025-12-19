@@ -38,19 +38,17 @@ func (g *Game) Update() error {
 func (g *Game) Draw(screen *ebiten.Image) {
 	for y := int(0); y < g.Grid.Height; y++ {
 		for x := int(0); x < g.Grid.Width; x++ {
-			cell_color := color.Black
 			if g.Grid.Cells[y][x] == 1 {
-				cell_color = color.White
+				vector.FillRect(
+					screen,
+					float32(x*g.Size),
+					float32(y*g.Size),
+					float32(g.Size),
+					float32(g.Size),
+					color.White,
+					false,
+				)
 			}
-			vector.FillRect(
-				screen,
-				float32(x*g.Size),
-				float32(y*g.Size),
-				float32(g.Size),
-				float32(g.Size),
-				cell_color,
-				false,
-			)
 		}
 	}
 }
