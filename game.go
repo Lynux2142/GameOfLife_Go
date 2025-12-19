@@ -1,21 +1,22 @@
 package main
 
 import (
-	"image/color"
 	"math/rand/v2"
 	"runtime"
 	"sync"
+	"unsafe"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 type Game struct{
 	Width 		int
 	Height 		int
-	Cells 		[][]uint8
-	NextCells 	[][]uint8
+	Cells 		[]uint8
+	NextCells 	[]uint8
+	Pixel 		[]byte
+	Pixel32 	[]uint32
 	NumCPU 		int
 	Running 	bool
 }
@@ -24,76 +25,58 @@ func NewGame(width, height int) Game {
 	game := &Game{
 		Width:		width,
 		Height: 	height,
+		Cells:		make([]uint8, width * height),
+		NextCells:	make([]uint8, width * height),
+		Pixel:		make([]byte, width * height << 2),
+		Pixel32:	nil,
 		NumCPU: 	runtime.NumCPU(),
 		Running: 	true,
 	}
-	game.Cells = make([][]uint8, height)
-	game.NextCells = make([][]uint8, height)
-	for j := range(height) {
-		game.Cells[j] = make([]uint8, width)
-		game.NextCells[j] = make([]uint8, width)
-		for i := range(width) {
-			game.Cells[j][i] = uint8(rand.IntN(2))
-			game.NextCells[j][i] = 0
-		}
+	game.Pixel32 = unsafe.Slice((*uint32)(unsafe.Pointer(&game.Pixel[0])), width * height)
+	for i := range(width * height) {
+		game.Cells[i] = uint8(rand.IntN(2))
 	}
 	return *game
 }
 
-func (g *Game) CountNeighbors(y, x int) uint8 {
-	yUp := y - 1
-	if yUp < 0 {
-		yUp = g.Height - 1
+func (g *Game) updateRange(startY, endY int) {
+	for y := startY; y < endY; y++ {
+		yUp    := ((y - 1 + g.Height) % g.Height) * g.Width
+		yMid   := y * g.Width
+		yDown  := ((y + 1) % g.Height) * g.Width
+		for x := 0; x < g.Width; x++ {
+			xLeft  := (x - 1 + g.Width) % g.Width
+			xRight := (x + 1) % g.Width
+			neighbors := g.Cells[yUp+xLeft] + g.Cells[yUp+x] + g.Cells[yUp+xRight] +
+			g.Cells[yMid+xLeft] + g.Cells[yMid+xRight] +
+			g.Cells[yDown+xLeft] + g.Cells[yDown+x] + g.Cells[yDown+xRight]
+			idx := yMid + x
+			if g.Cells[idx] == 1 && (neighbors < 2 || neighbors > 3) {
+				g.NextCells[idx] = 0
+				continue
+			}
+			if g.Cells[idx] == 0 && neighbors == 3 {
+				g.NextCells[idx] = 1
+				continue
+			}
+			g.NextCells[idx] = g.Cells[idx]
+		}
 	}
-	yDown := y + 1
-	if yDown >= g.Height {
-		yDown = 0
-	}
-
-	xLeft := x - 1
-	if xLeft < 0 {
-		xLeft = g.Width - 1
-	}
-	xRight := x + 1
-	if xRight >= g.Width {
-		xRight = 0
-	}
-
-	return g.Cells[yUp][xLeft] + g.Cells[yUp][x] + g.Cells[yUp][xRight] +
-	g.Cells[y][xLeft] + g.Cells[y][xRight] +
-	g.Cells[yDown][xLeft] + g.Cells[yDown][x] + g.Cells[yDown][xRight]
 }
 
-func (g *Game) GetNextCycleState(y, x int) {
-	neighbors := g.CountNeighbors(y, x)
-	if g.Cells[y][x] == 1 && (neighbors < 2 || neighbors > 3) {
-		g.NextCells[y][x] = 0
-		return
-	}
-	if (g.Cells[y][x] == 0 && neighbors == 3) {
-		g.NextCells[y][x] = 1
-		return
-	}
-	g.NextCells[y][x] = g.Cells[y][x]
-}
-
-func (g *Game) NextCycle(num_workers int) {
+func (g *Game) NextCycle() {
 	var wg sync.WaitGroup
-	rows_per_worker := g.Height / num_workers
-	for i := range(num_workers) {
-		startY := i * rows_per_worker
-		endY := startY + rows_per_worker
-		if i == num_workers - 1 {
+	rowsPerWorker := g.Height / g.NumCPU
+	for i := 0; i < g.NumCPU; i++ {
+		startY := i * rowsPerWorker
+		endY := startY + rowsPerWorker
+		if i == g.NumCPU - 1 {
 			endY = g.Height
 		}
 		wg.Add(1)
-		go func(start, end int) {
+		go func(s, e int) {
 			defer wg.Done()
-			for y := start; y < end; y++ {
-				for x := range(g.Width) {
-					g.GetNextCycleState(y, x)
-				}
-			}
+			g.updateRange(s, e)
 		}(startY, endY)
 	}
 	wg.Wait()
@@ -108,9 +91,9 @@ func (g *Game) KeyboardInput() {
 
 func (g *Game) MouseInput() {
 	x, y := ebiten.CursorPosition()
-	
+	i := y * g.Width + x
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		g.Cells[y][x] = 1
+		g.Cells[i] = 1
 	}
 }
 
@@ -118,30 +101,39 @@ func (g *Game) Update() error {
 	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
 		return ebiten.Termination
 	}
-	if g.Running {
-		g.NextCycle(g.NumCPU)
-	}
+	if g.Running { g.NextCycle() }
 	g.KeyboardInput()
 	g.MouseInput()
 	return nil
 }
 
-func (g *Game) Draw(screen *ebiten.Image) {
-	for y := range(g.Height) {
+func (g *Game) renderRange(startY, endY int) {
+	for y := startY; y < endY; y++ {
+		rowOffset := y * g.Width
 		for x := range(g.Width) {
-			if g.Cells[y][x] == 1 {
-				vector.FillRect(
-					screen,
-					float32(x),
-					float32(y),
-					1,
-					1,
-					color.White,
-					false,
-				)
-			}
+			idx := rowOffset + x
+			g.Pixel32[idx] = 0xFFFFFFFF * uint32(g.Cells[idx])
 		}
 	}
+}
+
+func (g *Game) Draw(screen *ebiten.Image) {
+	var wg sync.WaitGroup
+	rowsPerWorker := g.Height / g.NumCPU
+	for i := 0; i < g.NumCPU; i++ {
+		startY := i * rowsPerWorker
+		endY := startY + rowsPerWorker
+		if i == g.NumCPU - 1 {
+			endY = g.Height
+		}
+		wg.Add(1)
+		go func(s, e int) {
+			defer wg.Done()
+			g.renderRange(s, e)
+		}(startY, endY)
+	}
+	wg.Wait()
+	screen.WritePixels(g.Pixel)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
