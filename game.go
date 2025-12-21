@@ -161,6 +161,10 @@ func (g *Game) MouseInput() {
 		g.LastMousePos.X = x2
 		g.LastMousePos.Y = y2
 	}
+	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+		g.LastMousePos.X = -1
+		g.LastMousePos.Y = -1
+	}
 }
 
 func (g *Game) Update() error {
