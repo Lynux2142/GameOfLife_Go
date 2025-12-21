@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"math/rand/v2"
 	"runtime"
 	"sync"
@@ -19,6 +20,7 @@ type Game struct{
 	Pixel32 	[]uint32
 	NumCPU 		int
 	Running 	bool
+	LastMousePos 	struct{ X, Y int }
 }
 
 func NewGame(width, height int) Game {
@@ -31,6 +33,7 @@ func NewGame(width, height int) Game {
 		Pixel32:	nil,
 		NumCPU: 	runtime.NumCPU(),
 		Running: 	true,
+		LastMousePos: struct{ X, Y int }{ X: -1, Y: -1 },
 	}
 	game.Pixel32 = unsafe.Slice((*uint32)(unsafe.Pointer(&game.Pixel[0])), width * height)
 	for i := range(width * height) {
@@ -83,17 +86,80 @@ func (g *Game) NextCycle() {
 	g.Cells, g.NextCells = g.NextCells, g.Cells
 }
 
+func (g *Game) Reset() {
+	for i := range(g.Width * g.Height) {
+		g.Cells[i] = uint8(rand.IntN(2))
+	}
+}
+
+func (g *Game) Clear() {
+	g.Cells = make([]uint8, g.Width * g.Height)
+}
+
+func (g *Game) AddCell(x, y int) {
+	i := y * g.Width + x
+	g.Cells[i] = 1
+}
+
+func (g *Game) AddRandomCells(n int) {
+	for _ = range(n) {
+		g.AddCell(rand.IntN(g.Width), rand.IntN(g.Height))
+	}
+}
+
 func (g *Game) KeyboardInput() {
 	if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
 		g.Running = !g.Running
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
+		g.Clear()
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+		g.Reset()
+	}
+}
+
+func (g *Game) DrawLine(x0, y0, x1, y1 int) {
+	dx := int(math.Abs(float64(x1 - x0)))
+	dy := int(math.Abs(float64(y1 - y0)))
+	sx := -1
+	sy := -1
+	if x0 < x1 { sx = 1 }
+	if y0 < y1 { sy = 1 }
+	err := dx - dy
+	for {
+		g.AddCell(x0, y0)
+		if x0 == x1 && y0 == y1 { break }
+		err2 := err << 1
+		if err2 > -dy {
+			err -= dy
+			x0 += sx
+		}
+		if err2 < dx {
+			err += dx
+			y0 += sy
+		}
+	}
 }
 
 func (g *Game) MouseInput() {
-	x, y := ebiten.CursorPosition()
-	i := y * g.Width + x
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		g.Cells[i] = 1
+		x2, y2 := ebiten.CursorPosition()
+		x1 := func() int {
+			if g.LastMousePos.X == -1 {
+				g.LastMousePos.X = x2
+			}
+			return g.LastMousePos.X
+		}()
+		y1 := func() int {
+			if g.LastMousePos.Y == -1 {
+				g.LastMousePos.Y = y2
+			}
+			return g.LastMousePos.Y
+		}()
+		g.DrawLine(x1, y1, x2, y2)
+		g.LastMousePos.X = x2
+		g.LastMousePos.Y = y2
 	}
 }
 
@@ -101,7 +167,10 @@ func (g *Game) Update() error {
 	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
 		return ebiten.Termination
 	}
-	if g.Running { g.NextCycle() }
+	if g.Running {
+		g.NextCycle()
+		g.AddRandomCells(10)
+	}
 	g.KeyboardInput()
 	g.MouseInput()
 	return nil
@@ -112,7 +181,12 @@ func (g *Game) renderRange(startY, endY int) {
 		rowOffset := y * g.Width
 		for x := range(g.Width) {
 			idx := rowOffset + x
-			g.Pixel32[idx] = 0xFFFFFFFF * uint32(g.Cells[idx])
+			color := uint32(
+				y * 0xFF / g.Height << 16 |
+				x * 0xFF / g.Width << 8 |
+				0xFF,
+			)
+			g.Pixel32[idx] = color * uint32(g.Cells[idx])
 		}
 	}
 }
