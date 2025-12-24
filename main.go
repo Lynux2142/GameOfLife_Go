@@ -14,6 +14,7 @@ func main() {
 	width, height := ebiten.Monitor().Size()
 	ebiten.SetWindowSize(width, height)
 	ebiten.SetFullscreen(true)
+	ebiten.SetTPS(144)
 	game := NewGame(width / CELL_SIZE, height / CELL_SIZE)
 	if err := ebiten.RunGame(&game); err != nil {
 		log.Fatal(err)

@@ -172,8 +172,8 @@ func (g *Game) Update() error {
 		return ebiten.Termination
 	}
 	if g.Running {
+		g.AddRandomCells(100)
 		g.NextCycle()
-		g.AddRandomCells(10)
 	}
 	g.KeyboardInput()
 	g.MouseInput()
